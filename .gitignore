@@ -1,0 +1,5 @@
+.._model_TU_Synapse224_TU_pretrain_R50_ViT_B_16_skip3_epo150_bs24_224
+.._model_TU_Synapse224_TU_pretrain_R50_ViT_B_16_skip3_epo2_bs24_224
+**/__pycache__/
+/datasets
+/env

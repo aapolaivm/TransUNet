@@ -4,6 +4,7 @@ from medpy import metric
 from scipy.ndimage import zoom
 import torch.nn as nn
 import SimpleITK as sitk
+import os
 
 
 class DiceLoss(nn.Module):
@@ -96,7 +97,18 @@ def test_single_volume(image, label, net, classes, patch_size=[256, 256], test_s
         img_itk.SetSpacing((1, 1, z_spacing))
         prd_itk.SetSpacing((1, 1, z_spacing))
         lab_itk.SetSpacing((1, 1, z_spacing))
-        sitk.WriteImage(prd_itk, test_save_path + '/'+case + "_pred.nii.gz")
-        sitk.WriteImage(img_itk, test_save_path + '/'+ case + "_img.nii.gz")
-        sitk.WriteImage(lab_itk, test_save_path + '/'+ case + "_gt.nii.gz")
+        
+        # Update path handling for Windows compatibility
+        pred_path = os.path.join(test_save_path, f"{case}_pred.nii.gz")
+        img_path = os.path.join(test_save_path, f"{case}_img.nii.gz")
+        label_path = os.path.join(test_save_path, f"{case}_gt.nii.gz")
+        
+        # Ensure directory exists
+        os.makedirs(test_save_path, exist_ok=True)
+        
+        # Save files with proper path handling
+        sitk.WriteImage(prd_itk, pred_path)
+        sitk.WriteImage(img_itk, img_path)
+        sitk.WriteImage(lab_itk, label_path)
+        
     return metric_list

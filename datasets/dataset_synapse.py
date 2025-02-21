@@ -48,9 +48,12 @@ class RandomGenerator(object):
 
 class Synapse_dataset(Dataset):
     def __init__(self, base_dir, list_dir, split, transform=None):
-        self.transform = transform  # using transform in torch!
+        self.transform = transform
         self.split = split
-        self.sample_list = open(os.path.join(list_dir, self.split+'.txt')).readlines()
+        # Use os.path.join for Windows compatibility
+        list_path = os.path.join(list_dir, f"{split}.txt")
+        with open(list_path, 'r') as f:
+            self.sample_list = f.readlines()
         self.data_dir = base_dir
 
     def __len__(self):
@@ -59,12 +62,14 @@ class Synapse_dataset(Dataset):
     def __getitem__(self, idx):
         if self.split == "train":
             slice_name = self.sample_list[idx].strip('\n')
-            data_path = os.path.join(self.data_dir, slice_name+'.npz')
+            # Use os.path.join for path construction
+            data_path = os.path.join(self.data_dir, f"{slice_name}.npz")
             data = np.load(data_path)
             image, label = data['image'], data['label']
         else:
             vol_name = self.sample_list[idx].strip('\n')
-            filepath = self.data_dir + "/{}.npy.h5".format(vol_name)
+            # Use os.path.join instead of string concatenation
+            filepath = os.path.join(self.data_dir, f"{vol_name}.npy.h5")
             data = h5py.File(filepath)
             image, label = data['image'][:], data['label'][:]
 

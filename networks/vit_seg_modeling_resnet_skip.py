@@ -1,19 +1,20 @@
 import math
-
-from os.path import join as pjoin
+import os
 from collections import OrderedDict
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+def pjoin(*args):
+    """Join path components for weight dictionary keys using forward slashes."""
+    return '/'.join(str(arg) for arg in args)
 
 def np2th(weights, conv=False):
     """Possibly convert HWIO to OIHW."""
     if conv:
         weights = weights.transpose([3, 2, 0, 1])
     return torch.from_numpy(weights)
-
 
 class StdConv2d(nn.Conv2d):
 
@@ -74,10 +75,17 @@ class PreActBottleneck(nn.Module):
         return y
 
     def load_from(self, weights, n_block, n_unit):
-        conv1_weight = np2th(weights[pjoin(n_block, n_unit, "conv1/kernel")], conv=True)
-        conv2_weight = np2th(weights[pjoin(n_block, n_unit, "conv2/kernel")], conv=True)
-        conv3_weight = np2th(weights[pjoin(n_block, n_unit, "conv3/kernel")], conv=True)
-
+        """Load pretrained weights with Windows-compatible path handling."""
+        # Create weight key paths using custom pjoin
+        conv1_path = pjoin(n_block, n_unit, "conv1/kernel")
+        conv2_path = pjoin(n_block, n_unit, "conv2/kernel")
+        conv3_path = pjoin(n_block, n_unit, "conv3/kernel")
+        
+        # Load weights using consistent path format
+        conv1_weight = np2th(weights[conv1_path], conv=True)
+        conv2_weight = np2th(weights[conv2_path], conv=True)
+        conv3_weight = np2th(weights[conv3_path], conv=True)
+        
         gn1_weight = np2th(weights[pjoin(n_block, n_unit, "gn1/scale")])
         gn1_bias = np2th(weights[pjoin(n_block, n_unit, "gn1/bias")])
 

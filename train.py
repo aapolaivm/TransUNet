@@ -2,12 +2,13 @@ import argparse
 import logging
 import os
 import random
-import numpy as np
+import numpy np
 import torch
 import torch.backends.cudnn as cudnn
 from networks.vit_seg_modeling import VisionTransformer as ViT_seg
 from networks.vit_seg_modeling import CONFIGS as CONFIGS_ViT_seg
 from trainer import trainer_synapse
+from torch.cuda.amp import GradScaler, autocast
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
@@ -23,7 +24,7 @@ parser.add_argument('--max_iterations', type=int,
 parser.add_argument('--max_epochs', type=int,
                     default=150, help='maximum epoch number to train')
 parser.add_argument('--batch_size', type=int,
-                    default=24, help='batch_size per gpu')
+                    default=12, help='batch_size per gpu')  # Optimized for GTX 1070 with mixed precision
 parser.add_argument('--n_gpu', type=int, default=1, help='total gpu')
 parser.add_argument('--deterministic', type=int,  default=1,
                     help='whether use deterministic training')
@@ -55,39 +56,78 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     dataset_name = args.dataset
+
+    # Update path handling for Windows compatibility
+    base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    
+    # Update dataset config paths
     dataset_config = {
         'Synapse': {
-            'root_path': '../data/Synapse/train_npz',
-            'list_dir': './lists/lists_Synapse',
+            'root_path': os.path.join(base_path, 'data', 'Synapse', 'train_npz'),
+            'list_dir': os.path.join(os.path.dirname(__file__), 'lists', 'lists_Synapse'),  # Changed this line
             'num_classes': 9,
         },
     }
+    
+    # Update args with proper paths
     args.num_classes = dataset_config[dataset_name]['num_classes']
-    args.root_path = dataset_config[dataset_name]['root_path']
-    args.list_dir = dataset_config[dataset_name]['list_dir']
+    args.root_path = os.path.normpath(dataset_config[dataset_name]['root_path'])
+    args.list_dir = os.path.normpath(dataset_config[dataset_name]['list_dir'])
     args.is_pretrain = True
-    args.exp = 'TU_' + dataset_name + str(args.img_size)
-    snapshot_path = "../model/{}/{}".format(args.exp, 'TU')
-    snapshot_path = snapshot_path + '_pretrain' if args.is_pretrain else snapshot_path
-    snapshot_path += '_' + args.vit_name
-    snapshot_path = snapshot_path + '_skip' + str(args.n_skip)
-    snapshot_path = snapshot_path + '_vitpatch' + str(args.vit_patches_size) if args.vit_patches_size!=16 else snapshot_path
-    snapshot_path = snapshot_path+'_'+str(args.max_iterations)[0:2]+'k' if args.max_iterations != 30000 else snapshot_path
-    snapshot_path = snapshot_path + '_epo' +str(args.max_epochs) if args.max_epochs != 30 else snapshot_path
-    snapshot_path = snapshot_path+'_bs'+str(args.batch_size)
-    snapshot_path = snapshot_path + '_lr' + str(args.base_lr) if args.base_lr != 0.01 else snapshot_path
-    snapshot_path = snapshot_path + '_'+str(args.img_size)
-    snapshot_path = snapshot_path + '_s'+str(args.seed) if args.seed!=1234 else snapshot_path
-
-    if not os.path.exists(snapshot_path):
-        os.makedirs(snapshot_path)
+    
+    # Construct model save path
+    args.exp = f'TU_{dataset_name}{args.img_size}'
+    model_components = [
+        'TU_pretrain' if args.is_pretrain else 'TU',
+        args.vit_name,
+        f'skip{args.n_skip}',
+        f'vitpatch{args.vit_patches_size}' if args.vit_patches_size != 16 else None,
+        f'epo{args.max_epochs}' if args.max_epochs != 30 else None,
+        f'bs{args.batch_size}',
+        f'lr{args.base_lr}' if args.base_lr != 0.01 else None,
+        f'{args.img_size}',
+        f's{args.seed}' if args.seed != 1234 else None
+    ]
+    
+    # Filter out None values and join components
+    model_name = '_'.join(filter(None, model_components))
+    snapshot_path = os.path.join(base_path, 'model', args.exp, model_name)
+    
+    # Create directories if they don't exist
+    os.makedirs(snapshot_path, exist_ok=True)
+    print(f"Models will be saved to: {snapshot_path}")
+    
+    # Debugging: Print paths to verify
+    print(f"Root path: {args.root_path}")
+    print(f"List dir: {args.list_dir}")
+    train_list_path = os.path.join(args.list_dir, 'train.txt')
+    print(f"Train list path: {train_list_path}")
+    
+    # Check if train.txt exists
+    if not os.path.exists(train_list_path):
+        raise FileNotFoundError(f"Train list file not found: {train_list_path}")
+    
+    # Configure ViT model
     config_vit = CONFIGS_ViT_seg[args.vit_name]
     config_vit.n_classes = args.num_classes
     config_vit.n_skip = args.n_skip
     if args.vit_name.find('R50') != -1:
-        config_vit.patches.grid = (int(args.img_size / args.vit_patches_size), int(args.img_size / args.vit_patches_size))
+        config_vit.patches.grid = (int(args.img_size / args.vit_patches_size), 
+                                 int(args.img_size / args.vit_patches_size))
+    
+    # Initialize and load model
     net = ViT_seg(config_vit, img_size=args.img_size, num_classes=config_vit.n_classes).cuda()
     net.load_from(weights=np.load(config_vit.pretrained_path))
 
-    trainer = {'Synapse': trainer_synapse,}
-    trainer[dataset_name](args, net, snapshot_path)
+    # Enable mixed precision training
+    scaler = GradScaler()
+
+    # Start training
+    trainer = {'Synapse': trainer_synapse}
+    try:
+        result = trainer[dataset_name](args, net, snapshot_path, scaler)
+        print(f"\nTraining result: {result}")
+    except KeyboardInterrupt:
+        print("\nTraining interrupted by user")
+    except Exception as e:
+        print(f"\nError during training: {str(e)}")
