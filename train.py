@@ -2,7 +2,7 @@ import argparse
 import logging
 import os
 import random
-import numpy np
+import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 from networks.vit_seg_modeling import VisionTransformer as ViT_seg
